@@ -13,6 +13,7 @@ Este projeto realiza uma análise completa de dados históricos de voos nos EUA,
 - **Clusterização** — agrupamento de aeroportos por perfil de atraso (KMeans)
 - **PCA** — redução de dimensionalidade para visualização da estrutura dos dados
 
+
 ## Estrutura do Projeto
 
 ```
@@ -21,6 +22,8 @@ flight-delay-ml-analysis/
 ├── notebooks/          # Jupyter Notebooks com a análise
 ├── docs/               # Documentação e visualizações salvas
 ├── requirements.txt    # Dependências Python
+└── analysis_completo.html  # Output da execução do notebook
+└── analysis_resumo.html  # Versão resumida usada no vídeo
 └── README.md
 ```
 

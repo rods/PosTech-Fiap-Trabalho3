@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Flight Delay Analysis — Resumo Didático</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 960px; margin: 0 auto; padding: 20px; line-height: 1.7; color: #333; background: #fafafa; }
+  h1 { color: #1a1a2e; border-bottom: 3px solid #16213e; padding-bottom: 10px; }
+  h2 { color: #16213e; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 35px; }
+  h3 { color: #0f3460; margin-top: 20px; }
+  pre { background: #1e1e2e; color: #cdd6f4; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  code { font-family: 'Fira Code', 'Consolas', monospace; }
+  .output { background: #f0f0f0; border-left: 4px solid #4cc9f0; padding: 12px; margin: 10px 0; font-family: monospace; font-size: 13px; white-space: pre-wrap; }
+  .insight { background: #e8f5e9; border-left: 4px solid #4caf50; padding: 12px; margin: 10px 0; border-radius: 4px; }
+  .warning { background: #fff3e0; border-left: 4px solid #ff9800; padding: 12px; margin: 10px 0; border-radius: 4px; }
+  .metric { background: #e3f2fd; border-left: 4px solid #2196f3; padding: 12px; margin: 10px 0; border-radius: 4px; }
+  .tech { background: #f3e5f5; border-left: 4px solid #9c27b0; padding: 12px; margin: 10px 0; border-radius: 4px; }
+  .analogy { background: #fff8e1; border-left: 4px solid #ffc107; padding: 12px; margin: 10px 0; border-radius: 4px; font-style: italic; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+  th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+  th { background: #16213e; color: white; }
+  tr:nth-child(even) { background: #f5f5f5; }
+  .section-num { color: #4cc9f0; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>Flight Delay ML Analysis — Resumo Didático</h1>
+
+<p><strong>O que esse projeto faz:</strong> Usa dados de 5,8 milhões de voos nos EUA (ano de 2015) para
+tentar responder três perguntas:</p>
+<ol>
+  <li>Dá pra <strong>prever</strong> se um voo vai atrasar?</li>
+  <li>Se vai atrasar, dá pra saber <strong>por quanto tempo</strong>?</li>
+  <li>Existem <strong>grupos naturais</strong> de aeroportos que se comportam de forma parecida?</li>
+</ol>
+
+<h3>Ferramentas usadas</h3>
+<div class="tech">
+<table>
+<tr><th>Ferramenta</th><th>Pra que serve</th></tr>
+<tr><td><strong>pandas</strong></td><td>Ler, filtrar e transformar tabelas de dados (tipo um Excel turbinado)</td></tr>
+<tr><td><strong>numpy</strong></td><td>Fazer cálculos matemáticos rápidos com grandes volumes de números</td></tr>
+<tr><td><strong>matplotlib / seaborn</strong></td><td>Criar gráficos e visualizações</td></tr>
+<tr><td><strong>scikit-learn</strong></td><td>Biblioteca de Machine Learning — traz os algoritmos, métricas e ferramentas de preparação de dados</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">1.</span> Carregamento dos Dados</h2>
+
+<div class="tech">
+<strong>O que acontece aqui:</strong> Lemos 3 arquivos — um com dados de voos (592 MB, o principal),
+um com nomes de companhias aéreas e um com informações de aeroportos. Como o arquivo de voos
+é muito grande, usamos tipos de dados menores (ex: int8 em vez de int64) pra economizar memória.
+</div>
+
+<pre><code># Leitura dos 3 datasets
+df_airlines = pd.read_csv('airlines.csv')    # 14 companhias aéreas
+df_airports = pd.read_csv('airports.csv')    # 322 aeroportos
+df_flights  = pd.read_csv('flights.csv',     # 5,8 milhões de voos
+              dtype={'MONTH': 'int8', 'AIRLINE': 'category', ...})  # tipos otimizados</code></pre>
+
+<div class="output">airlines.csv carregado: 14 companhias
+airports.csv carregado: 322 aeroportos
+flights.csv  carregado: 5.819.079 voos x 31 colunas</div>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">2.</span> Preparação dos Dados</h2>
+
+<h3>2.1 Junção das tabelas</h3>
+
+<div class="tech">
+<strong>O que acontece aqui:</strong> A tabela de voos só tem códigos (ex: "AA" pra American Airlines,
+"ATL" pra Atlanta). Juntamos com as outras tabelas pra ter os nomes completos.
+É como um PROCV do Excel — cruzamos pelo código e trazemos o nome.
+</div>
+
+<pre><code># Junta voos + companhias + aeroportos (3 left joins)
+df_merged = df_flights.merge(df_airlines, ...)   # adiciona nome da companhia
+                      .merge(df_airports, ...)   # adiciona cidade/estado de origem
+                      .merge(df_airports, ...)   # adiciona cidade/estado de destino
+# Resultado: 5.819.079 linhas x 36 colunas</code></pre>
+
+<h3>2.2 Dados faltantes</h3>
+
+<div class="warning">
+<strong>Problema encontrado:</strong> Algumas colunas têm mais de 80% dos valores vazios
+(ex: WEATHER_DELAY, AIRLINE_DELAY). Isso é normal — essas colunas só são preenchidas
+quando o voo realmente atrasa. Voos pontuais ficam em branco.
+<br><br>
+<strong>Solução:</strong> Removemos apenas as linhas onde as 4 colunas essenciais estão vazias
+(ARRIVAL_DELAY, DEPARTURE_DELAY, SCHEDULED_TIME, DISTANCE). Perdemos só 1,8% dos dados.
+</div>
+
+<h3>2.3 Criação de novas colunas</h3>
+
+<div class="tech">
+<strong>O que acontece aqui:</strong> Criamos colunas novas a partir das que já existem pra facilitar a análise.
+Isso se chama "Feature Engineering" — é transformar dados brutos em informações mais úteis pro modelo.
+</div>
+
+<pre><code># Novas colunas criadas:
+df['HOUR_OF_DAY'] = ...  # Hora do voo (0-23), tirada do horário programado
+df['IS_WEEKEND']  = ...  # 1 se sábado/domingo, 0 se dia útil
+df['IS_DELAYED']  = ...  # 1 se atrasou 15 min ou mais, 0 se não (nosso "alvo")
+df['ROUTE']       = ...  # Rota (ex: "ATL-LAX")</code></pre>
+
+<div class="output">Taxa de atraso: 18,6% dos voos atrasaram 15 minutos ou mais.
+Dataset final: 5.714.008 linhas x 40 colunas</div>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">3.</span> Exploração dos Dados (EDA)</h2>
+
+<div class="tech">
+<strong>O que acontece aqui:</strong> Antes de criar modelos, exploramos os dados pra entender os padrões.
+Calculamos médias, criamos gráficos e procuramos tendências. É como conhecer o terreno antes de construir.
+</div>
+
+<h3>Números gerais</h3>
+<div class="output">Atraso médio de chegada:  4,4 min (a maioria chega no horário ou adiantado)
+Mediana do atraso:       -5,0 min (metade dos voos chega 5 min antes!)
+Maior atraso registrado: 1.971 min (~33 horas)</div>
+
+<h3>Padrões descobertos</h3>
+
+<div class="insight">
+<strong>Quando os voos mais atrasam?</strong>
+<ul>
+<li><strong>Hora do dia:</strong> Atrasos aumentam ao longo do dia. Pior horário: 18h–21h. Melhor: 5h–7h.
+Isso acontece por efeito cascata — um atraso de manhã vai se propagando pros voos seguintes.</li>
+<li><strong>Dia da semana:</strong> Quinta e sexta são os piores dias. Sábado é o melhor.</li>
+<li><strong>Mês:</strong> Junho–julho (verão americano) e dezembro–janeiro (inverno) são os piores.
+Setembro–outubro são os melhores.</li>
+</ul>
+</div>
+
+<div class="insight">
+<strong>Quais aeroportos e companhias mais atrasam?</strong>
+<ul>
+<li><strong>Aeroportos:</strong> Os que mais atrasam são pequenos e regionais (PBG: 32%, MMH: 30%, ASE: 30%).</li>
+<li><strong>Companhias:</strong> Spirit e Frontier lideram os atrasos. Alaska Airlines e Hawaiian são as mais pontuais.</li>
+</ul>
+</div>
+
+<div class="insight">
+<strong>Correlações importantes:</strong> Se um voo sai atrasado, quase certamente chega atrasado
+(correlação de 0,945 entre atraso de partida e de chegada). Distância e tempo de voo são praticamente
+a mesma informação (correlação de 0,986).
+</div>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">4.</span> Classificação: "O voo vai atrasar?"</h2>
+
+<div class="tech">
+<strong>O que acontece aqui:</strong> Treinamos o computador pra responder SIM ou NÃO — o voo vai atrasar
+15 minutos ou mais? Usamos informações disponíveis <em>antes</em> do voo (mês, dia, hora, companhia,
+aeroporto, distância). Testamos dois algoritmos:
+<br><br>
+<strong>Logistic Regression</strong> — o mais simples. Traça uma "linha reta" pra separar atrasados de não atrasados.
+<br>
+<strong>Random Forest</strong> — mais sofisticado. Cria 100 "árvores de decisão" (tipo fluxogramas de perguntas)
+e combina as respostas de todas pra decidir.
+</div>
+
+<div class="analogy">
+Pense assim: Logistic Regression é como um médico que usa uma única regra simples pra dar o diagnóstico.
+Random Forest é como um conselho de 100 médicos — cada um analisa de um ângulo diferente e eles votam juntos.
+</div>
+
+<pre><code># Informações usadas pelo modelo:
+# mês, dia da semana, hora, companhia, aeroporto origem/destino, tempo programado, distância
+
+# Divisão: 80% pra treinar, 20% pra testar
+X_train, X_test = train_test_split(X, y, test_size=0.2)
+# Treino: 4,5M voos | Teste: 1,1M voos
+
+# Dois modelos treinados
+model_lr = LogisticRegression()     # simples
+model_rf = RandomForestClassifier() # sofisticado</code></pre>
+
+<h3>Resultados</h3>
+<div class="metric">
+<table>
+<tr><th>Modelo</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1</th></tr>
+<tr><td>Logistic Regression</td><td>81,4%</td><td>0%</td><td>0%</td><td>0%</td></tr>
+<tr><td><strong>Random Forest</strong></td><td><strong>81,4%</strong></td><td><strong>68%</strong></td><td>0,3%</td><td>0,6%</td></tr>
+</table>
+</div>
+
+<div class="tech">
+<strong>O que essas métricas querem dizer:</strong>
+<ul>
+<li><strong>Accuracy (81,4%):</strong> Parece bom, mas é enganoso. Como 81,4% dos voos NÃO atrasam,
+um modelo que sempre diz "não vai atrasar" já acerta 81,4%. É exatamente o que a Logistic Regression faz.</li>
+<li><strong>Precision (68%):</strong> Quando o Random Forest diz "vai atrasar", ele acerta 68% das vezes.</li>
+<li><strong>Recall (0,3%):</strong> Mas ele só consegue identificar 0,3% dos voos que realmente atrasam — quase nenhum.</li>
+</ul>
+</div>
+
+<div class="warning">
+<strong>Conclusão:</strong> Os modelos não conseguem prever atrasos de forma útil. O motivo principal:
+as informações que temos (mês, hora, companhia) não são suficientes. Atrasos dependem muito de
+<strong>clima</strong>, <strong>tráfego aéreo</strong> e <strong>problemas operacionais</strong> — dados que não estão no dataset.
+</div>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">5.</span> Regressão: "Quanto tempo vai atrasar?"</h2>
+
+<div class="tech">
+<strong>O que acontece aqui:</strong> Pra os voos que já sabemos que atrasaram, tentamos prever
+<em>quantos minutos</em> de atraso. Usamos só os 2 milhões de voos atrasados. Testamos dois algoritmos:
+<br><br>
+<strong>Linear Regression</strong> — tenta achar uma fórmula (uma reta) que relacione as informações ao atraso.
+<br>
+<strong>Random Forest Regressor</strong> — mesma ideia das 100 árvores, mas em vez de votar SIM/NÃO, cada árvore
+estima um número de minutos e o resultado final é a média de todas.
+</div>
+
+<pre><code># Só voos atrasados (ARRIVAL_DELAY > 0)
+# 2.086.896 voos | Média de atraso: 33 min | Mediana: 15 min | Máximo: 1.627 min
+
+model_lr  = LinearRegression()          # fórmula linear
+model_rfr = RandomForestRegressor()     # conjunto de árvores</code></pre>
+
+<h3>Resultados</h3>
+<div class="metric">
+<table>
+<tr><th>Modelo</th><th>MAE</th><th>RMSE</th><th>R²</th></tr>
+<tr><td>Linear Regression</td><td>30,7 min</td><td>52,2 min</td><td>0,01 (1%)</td></tr>
+<tr><td><strong>Random Forest</strong></td><td><strong>30,0 min</strong></td><td><strong>51,6 min</strong></td><td><strong>0,03 (3%)</strong></td></tr>
+</table>
+</div>
+
+<div class="tech">
+<strong>O que essas métricas querem dizer:</strong>
+<ul>
+<li><strong>MAE (30 min):</strong> Na média, o modelo erra por 30 minutos. Pra atrasos com mediana de 15 min, é muito erro.</li>
+<li><strong>RMSE (52 min):</strong> Parecido com o MAE, mas dá mais peso pros erros grandes. Quanto menor, melhor.</li>
+<li><strong>R² (3%):</strong> O modelo só explica 3% da variação dos atrasos. Os outros 97% dependem de coisas que não temos no dataset.</li>
+</ul>
+</div>
+
+<div class="warning">
+<strong>Conclusão:</strong> Prever a duração do atraso é ainda mais difícil do que prever se vai atrasar.
+Sem dados de clima e informações operacionais, os modelos são praticamente aleatórios.
+</div>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">6.</span> Agrupamento de Aeroportos (Clustering)</h2>
+
+<div class="tech">
+<strong>O que acontece aqui:</strong> Em vez de prever algo, agrupamos os 628 aeroportos em "perfis"
+parecidos. O algoritmo <strong>KMeans</strong> olha 6 características de cada aeroporto (volume de voos,
+taxa de atraso, atraso médio, etc.) e junta os que se parecem.
+<br><br>
+Antes disso, normalizamos os dados (colocamos tudo na mesma escala) pra que o número de voos
+(que vai até 343 mil) não domine a comparação com a taxa de atraso (que vai até 55%).
+</div>
+
+<div class="analogy">
+Pense assim: é como organizar alunos em grupos pra um trabalho escolar. Você não define quantos
+grupos quer de cara — testa várias opções e vê qual agrupamento faz mais sentido.
+O "Silhouette Score" mede se os alunos dentro de cada grupo são parecidos entre si
+e diferentes dos outros grupos.
+</div>
+
+<pre><code># Pra cada aeroporto, calculamos:
+# - Total de voos, taxa de atraso, taxa de cancelamento
+# - Atraso médio de chegada/partida, distância média
+# 628 aeroportos x 6 características
+
+# Normalização (mesma escala pra todas as características)
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(df_airport_agg)
+
+# Testamos k=2 até k=10 e escolhemos o melhor pelo Silhouette Score
+# Resultado: k=6 (silhouette=0,34)</code></pre>
+
+<h3>Os 6 perfis encontrados</h3>
+<div class="metric">
+<table>
+<tr><th>Grupo</th><th>Qtd</th><th>Voos/ano</th><th>Atraso</th><th>Quem são</th></tr>
+<tr><td>Cluster 0</td><td>100</td><td>~7.700</td><td>13,5%</td><td>Médio porte, rotas longas, boa pontualidade</td></tr>
+<tr><td>Cluster 1</td><td>283</td><td>~4.800</td><td>17,5%</td><td>Regionais, rotas curtas, atraso moderado</td></tr>
+<tr><td>Cluster 2</td><td>1</td><td>9</td><td>44,4%</td><td>Outlier extremo (aeroporto atípico)</td></tr>
+<tr><td><strong>Cluster 3</strong></td><td><strong>27</strong></td><td><strong>~126.000</strong></td><td><strong>20,1%</strong></td><td><strong>Grandes hubs (ATL, ORD, DFW, LAX)</strong></td></tr>
+<tr><td>Cluster 4</td><td>198</td><td>~800</td><td>9,3%</td><td>Pequenos, baixo volume, muito pontuais</td></tr>
+<tr><td>Cluster 5</td><td>19</td><td>~880</td><td>32,2%</td><td>Pequenos com problemas crônicos de atraso</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">7.</span> Visualização em 2D (PCA)</h2>
+
+<div class="tech">
+<strong>O que acontece aqui:</strong> Cada aeroporto tem 6 características — impossível de ver num gráfico.
+O <strong>PCA</strong> comprime essas 6 dimensões em apenas 2, guardando o máximo de informação possível.
+É como tirar uma foto de um objeto 3D — você perde um pouco de detalhe, mas consegue ver a forma geral.
+</div>
+
+<div class="analogy">
+Pense assim: imagine que cada aeroporto é descrito por 6 notas (volume, atraso, distância...).
+O PCA combina essas notas em 2 "super-notas" que resumem a maior parte da informação.
+A primeira super-nota (PC1) captura principalmente o tamanho do aeroporto.
+A segunda (PC2) captura o tipo de rotas e cancelamentos.
+</div>
+
+<pre><code># Reduz de 6 dimensões pra 2
+pca = PCA(n_components=2)
+X_pca = pca.fit_transform(X_scaled)</code></pre>
+
+<div class="output">Informação preservada:
+  PC1: 54,8% (tamanho e volume do aeroporto)
+  PC2: 22,6% (distância das rotas e cancelamentos)
+  Total: 77,4% da informação original mantida em 2D
+
+Outliers: ATL, ORD, DFW, LAX (os maiores hubs do país)</div>
+
+<div class="insight">
+<strong>O que o gráfico mostra:</strong> Os grandes hubs (cluster 3) ficam isolados no canto do gráfico,
+bem separados dos demais. A maioria dos aeroportos regionais se concentra perto do centro.
+Isso confirma que o volume de operações é o que mais diferencia os aeroportos entre si.
+</div>
+
+<!-- ============================================================ -->
+<h2><span class="section-num">8.</span> Conclusões</h2>
+
+<h3>O que aprendemos</h3>
+<table>
+<tr><th>Pergunta</th><th>Resposta</th></tr>
+<tr><td>Dá pra prever se um voo vai atrasar?</td><td><strong>Não de forma útil</strong> — com os dados disponíveis, os modelos quase não detectam atrasos (recall ~0%)</td></tr>
+<tr><td>Dá pra prever quanto tempo vai atrasar?</td><td><strong>Não com precisão</strong> — erro médio de 30 min, modelo explica só 3% da variação</td></tr>
+<tr><td>Existem grupos de aeroportos?</td><td><strong>Sim!</strong> — 6 perfis claros, desde grandes hubs até pequenos aeroportos com problemas crônicos</td></tr>
+</table>
+
+<h3>Por que os modelos preditivos não funcionaram bem</h3>
+<div class="warning">
+O principal motivo é a <strong>falta de dados externos</strong>. Atrasos de voo dependem muito de:
+<ul>
+<li><strong>Clima</strong> — tempestades, neve, neblina (não está no dataset)</li>
+<li><strong>Tráfego aéreo</strong> — congestionamento no espaço aéreo (não está no dataset)</li>
+<li><strong>Problemas operacionais</strong> — manutenção, falta de tripulação (não está no dataset)</li>
+</ul>
+Só com mês, hora, companhia e aeroporto, não tem informação suficiente pra prever atrasos.
+</div>
+
+<h3>O que poderia melhorar</h3>
+<table>
+<tr><th>O quê</th><th>Como</th></tr>
+<tr><td>Mais dados</td><td>Adicionar clima (NOAA), tráfego aéreo (FAA), dados de vários anos</td></tr>
+<tr><td>Algoritmos melhores</td><td>XGBoost, LightGBM — mais poderosos que Random Forest</td></tr>
+<tr><td>Validação mais robusta</td><td>Validação cruzada (testar em várias divisões dos dados, não só uma)</td></tr>
+<tr><td>Tratamento de categorias</td><td>Target Encoding em vez de Label Encoding (evita criar ordem falsa entre aeroportos)</td></tr>
+<tr><td>Aplicação prática</td><td>Criar uma API que receba dados de um voo e retorne a probabilidade de atraso</td></tr>
+</table>
+
+</body>
+</html>
